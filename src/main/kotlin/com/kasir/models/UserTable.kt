@@ -1,11 +1,19 @@
-// src/main/kotlin/com/kasir/models/UserTable.kt
 package com.kasir.models
 
 import org.jetbrains.exposed.dao.id.UUIDTable
+import org.jetbrains.exposed.sql.ReferenceOption
+import org.jetbrains.exposed.sql.javatime.timestamp
+import java.time.Instant
 
-object UserTable : UUIDTable("users") {
-    val nama     = varchar("nama", 50)
-    val email    = varchar("email", 100).uniqueIndex()
-    val password = varchar("password", 60)
-    val role     = varchar("role", 20)
+object UsersTable : UUIDTable("users") {
+    val email     = text("email").uniqueIndex()
+    val password  = text("password")
+    val role      = text("role")
+    val entitasId = reference(
+        name    = "entitas_id",
+        foreign = EntitasUsahaTable,
+        onDelete = ReferenceOption.CASCADE
+    )
+    val createdAt = timestamp("created_at")
+        .clientDefault { Instant.now() }
 }

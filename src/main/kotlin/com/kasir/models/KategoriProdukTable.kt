@@ -1,10 +1,11 @@
 package com.kasir.models
 
-import org.jetbrains.exposed.sql.Table
-import java.util.UUID
+import org.jetbrains.exposed.dao.id.UUIDTable
+import org.jetbrains.exposed.sql.*
+import com.kasir.models.EntitasUsahaTable
 
-object KategoriProdukTable : Table("kategori_produk") {
-    val id = uuid("id").autoGenerate().uniqueIndex()
-    val namaKategori = varchar("nama", 255) // ✅ Ganti jadi namaKategori
-    override val primaryKey = PrimaryKey(id)
+object KategoriProdukTable : UUIDTable(name = "kategori_produk") {
+    /** Nama kategori produk */
+    val namaKategori: Column<String> = varchar("nama_kategori", length = 255)
+    val entitasId = reference("entitas_id", EntitasUsahaTable)
 }

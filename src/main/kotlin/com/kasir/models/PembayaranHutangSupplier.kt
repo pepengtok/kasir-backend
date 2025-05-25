@@ -9,5 +9,6 @@ data class PembayaranHutangSupplier(
     val tanggalBayar: LocalDateTime,
     val jumlahBayar: Double,
     val kasId: UUID,
-    val keterangan: String?
+    val keterangan: String?,
+    val entitasId: String
 )

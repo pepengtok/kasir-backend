@@ -1,15 +1,23 @@
 package com.kasir.models
 
-import org.jetbrains.exposed.sql.Table
-import java.time.LocalDateTime
+import org.jetbrains.exposed.dao.id.EntityID
+import org.jetbrains.exposed.dao.id.UUIDTable
+import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.javatime.datetime
+import java.time.LocalDateTime
+import java.util.UUID
+import com.kasir.models.EntitasUsahaTable
 
-object KasTransferTable : Table("kas_transfer") {
-    val id = uuid("id").autoGenerate().uniqueIndex()
-    val kasAsalId = uuid("kas_asal_id")
-    val kasTujuanId = uuid("kas_tujuan_id")
-    val tanggal = datetime("tanggal")
-    val jumlah = double("jumlah")
+object KasTransferTable : UUIDTable(name = "kas_transfer") {
+    /** FK ke akun asal */
+    val kasAsalId: Column<EntityID<UUID>> = reference("kas_asal_id", KasTable)
 
-    override val primaryKey = PrimaryKey(id)
+    /** FK ke akun tujuan */
+    val kasTujuanId: Column<EntityID<UUID>> = reference("kas_tujuan_id", KasTable)
+
+    /** Waktu transfer */
+    val tanggal: Column<LocalDateTime> = datetime("tanggal")
+    val entitasId = reference("entitas_id", EntitasUsahaTable)
+    /** Jumlah yang dipindah */
+    val jumlah: Column<Double> = double("jumlah")
 }

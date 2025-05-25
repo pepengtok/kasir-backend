@@ -13,5 +13,6 @@ data class SupplierEntity(
     val no_hp: String?        = null,
     val alamat: String?        = null,
     val rekeningBank: String?  = null,
-    val namaSales: String?     = null
+    val namaSales: String?     = null,
+    val entitasId: String
 )

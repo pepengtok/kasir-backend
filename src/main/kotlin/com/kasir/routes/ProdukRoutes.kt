@@ -1,4 +1,3 @@
-// File: src/main/kotlin/com/kasir/routes/ProdukRoutes.kt
 package com.kasir.routes
 
 import io.ktor.http.HttpStatusCode
@@ -7,52 +6,35 @@ import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.*
-import com.kasir.models.ProdukRequest
-import com.kasir.models.ProdukResponse
-import com.kasir.models.ProdukTable
+import com.kasir.models.* // Pastikan ini mengimpor ProdukTable, SupplierTable, KategoriProdukTable
+import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
-import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.select
-import org.jetbrains.exposed.sql.update
-import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.dao.id.EntityID
 import java.util.UUID
+import com.kasir.models.EntitasUsahaTable
+import io.ktor.server.auth.principal
+import io.ktor.server.auth.jwt.JWTPrincipal
+import com.kasir.dto.*
+
+
+
 
 fun Route.produkRoutes() {
-    authenticate("auth-jwt") {
+    authenticate("jwt-auth") { // Pastikan rute ini dilindungi JWT dengan benar
         route("/produk") {
-            // GET all produk
+            // GET all produk (filtered by entitasId dari JWT)
             get {
-                val produkList = transaction {
-                    ProdukTable.selectAll().map { row ->
-                        ProdukResponse(
-                            id = row[ProdukTable.id].value.toString(),
-                            namaProduk = row[ProdukTable.namaProduk],
-                            kodeProduk = row[ProdukTable.kodeProduk],
-                            hargaModal = row[ProdukTable.hargaModal],
-                            hargaJual1 = row[ProdukTable.hargaJual1],
-                            hargaJual2 = row[ProdukTable.hargaJual2],
-                            hargaJual3 = row[ProdukTable.hargaJual3],
-                            stok = row[ProdukTable.stok],
-                            supplierId = row[ProdukTable.supplierId]?.toString(),
-                            kategoriId = row[ProdukTable.kategoriId].toString()
-                        )
-                    }
-                }
-                call.respond(HttpStatusCode.OK, produkList)
-            }
+                val principal = call.principal<JWTPrincipal>()!!
+                val entitasUUID = UUID.fromString(principal.payload.getClaim("entitasId").asString())
 
-            // GET produk by ID
-            get("/{id}") {
-                val idParam = call.parameters["id"]
-                    ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing ID"))
-                val uuid = runCatching { UUID.fromString(idParam) }.getOrNull()
-                    ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid UUID format"))
-                val produk = transaction {
-                    ProdukTable.select { ProdukTable.id eq uuid }
+                val list = transaction {
+                    ProdukTable
+                        .join(SupplierTable, JoinType.LEFT) { ProdukTable.supplierId eq SupplierTable.id }
+                        .join(KategoriProdukTable, JoinType.INNER) { ProdukTable.kategoriId eq KategoriProdukTable.id }
+                        .select { ProdukTable.entitasId eq EntityID(entitasUUID, EntitasUsahaTable) }
                         .map { row ->
-                            ProdukResponse(
+                            ProdukResponseDto(
                                 id = row[ProdukTable.id].value.toString(),
                                 namaProduk = row[ProdukTable.namaProduk],
                                 kodeProduk = row[ProdukTable.kodeProduk],
@@ -61,97 +43,142 @@ fun Route.produkRoutes() {
                                 hargaJual2 = row[ProdukTable.hargaJual2],
                                 hargaJual3 = row[ProdukTable.hargaJual3],
                                 stok = row[ProdukTable.stok],
-                                supplierId = row[ProdukTable.supplierId]?.toString(),
-                                kategoriId = row[ProdukTable.kategoriId].toString()
+                                satuan = row[ProdukTable.satuan],
+                                supplier = row[ProdukTable.supplierId]?.let { SupplierDto(it.value.toString(), row[SupplierTable.namaSupplier]) },
+                                kategori = KategoriProdukDto(
+                                    id = row[KategoriProdukTable.id].value.toString(),
+                                    namaKategori = row[KategoriProdukTable.namaKategori],
+                                    entitasId = row[KategoriProdukTable.entitasId].value.toString() // ✅ PERBAIKAN DI SINI
+                                ),
+                                entitas_id = row[ProdukTable.entitasId].value.toString(),
+                                berat_gram = row[ProdukTable.beratGram],
+                                panjang_cm = row[ProdukTable.panjangCm],
+                                lebar_cm = row[ProdukTable.lebarCm],
+                                tinggi_cm = row[ProdukTable.tinggiCm]
                             )
                         }
+                }
+                call.respond(HttpStatusCode.OK, list)
+            }
+
+            // GET produk by ID
+            get("/{id}") {
+                val principal = call.principal<JWTPrincipal>()!!
+                val entitasUUID = UUID.fromString(principal.payload.getClaim("entitasId").asString())
+                val productId = UUID.fromString(call.parameters["id"]!!)
+
+                val produkResponse = transaction {
+                    ProdukTable
+                        .join(SupplierTable, JoinType.LEFT) { ProdukTable.supplierId eq SupplierTable.id }
+                        .join(KategoriProdukTable, JoinType.INNER) { ProdukTable.kategoriId eq KategoriProdukTable.id }
+                        .select { (ProdukTable.id eq EntityID(productId, ProdukTable)) and (ProdukTable.entitasId eq EntityID(entitasUUID, EntitasUsahaTable)) }
                         .singleOrNull()
+                        ?.let { row ->
+                            ProdukResponseDto(
+                                id = row[ProdukTable.id].value.toString(),
+                                namaProduk = row[ProdukTable.namaProduk],
+                                kodeProduk = row[ProdukTable.kodeProduk],
+                                hargaModal = row[ProdukTable.hargaModal],
+                                hargaJual1 = row[ProdukTable.hargaJual1],
+                                hargaJual2 = row[ProdukTable.hargaJual2],
+                                hargaJual3 = row[ProdukTable.hargaJual3],
+                                stok = row[ProdukTable.stok],
+                                satuan = row[ProdukTable.satuan],
+                                supplier = row[ProdukTable.supplierId]?.let { SupplierDto(it.value.toString(), row[SupplierTable.namaSupplier]) },
+                                kategori = KategoriProdukDto(
+                                    id = row[KategoriProdukTable.id].value.toString(),
+                                    namaKategori = row[KategoriProdukTable.namaKategori],
+                                    entitasId = row[KategoriProdukTable.entitasId].value.toString() // ✅ PERBAIKAN DI SINI
+                                ),
+                                entitas_id = row[ProdukTable.entitasId].value.toString(),
+                                berat_gram = row[ProdukTable.beratGram],
+                                panjang_cm = row[ProdukTable.panjangCm],
+                                lebar_cm = row[ProdukTable.lebarCm],
+                                tinggi_cm = row[ProdukTable.tinggiCm]
+                            )
+                        }
                 }
-                produk?.let { call.respond(HttpStatusCode.OK, it) }
-                    ?: call.respond(HttpStatusCode.NotFound, mapOf("error" to "Produk tidak ditemukan"))
+                if (produkResponse == null) {
+                    call.respond(HttpStatusCode.NotFound, mapOf("error" to "Produk tidak ditemukan"))
+                } else {
+                    call.respond(HttpStatusCode.OK, produkResponse)
+                }
             }
 
-            // POST create produk baru
+            // POST (Create) produk
             post {
-                val req = call.receive<ProdukRequest>()
-                if (req.namaProduk.isBlank() || req.kodeProduk.isBlank() || req.hargaModal <= 0.0 ||
-                    req.hargaJual1 <= 0.0 || req.stok < 0 || req.kategoriId.isBlank()
-                ) {
-                    return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Field tidak valid atau kosong"))
+                val principal = call.principal<JWTPrincipal>()!!
+                val entitasUUID = UUID.fromString(principal.payload.getClaim("entitasId").asString())
+                val produkRequest = call.receive<ProdukRequestDto>()
+
+                val newProductId = transaction {
+                    ProdukTable.insertAndGetId {
+                        it[ProdukTable.entitasId] = EntityID(entitasUUID, EntitasUsahaTable)
+                        it[ProdukTable.namaProduk] = produkRequest.namaProduk
+                        it[ProdukTable.kodeProduk] = produkRequest.kodeProduk
+                        it[ProdukTable.hargaModal] = produkRequest.hargaModal
+                        it[ProdukTable.hargaJual1] = produkRequest.hargaJual1
+                        it[ProdukTable.hargaJual2] = produkRequest.hargaJual2
+                        it[ProdukTable.hargaJual3] = produkRequest.hargaJual3
+                        it[ProdukTable.stok] = produkRequest.stok
+                        it[ProdukTable.satuan] = produkRequest.satuan
+                        it[ProdukTable.supplierId] = produkRequest.supplierId?.let { sid -> EntityID(UUID.fromString(sid), SupplierTable) }
+                        it[ProdukTable.kategoriId] = EntityID(UUID.fromString(produkRequest.kategoriId), KategoriProdukTable)
+                        it[ProdukTable.beratGram] = produkRequest.berat_gram
+                        it[ProdukTable.panjangCm] = produkRequest.panjang_cm
+                        it[ProdukTable.lebarCm] = produkRequest.lebar_cm
+                        it[ProdukTable.tinggiCm] = produkRequest.tinggi_cm
+                    }.value
                 }
-                val exists = transaction { ProdukTable.select { ProdukTable.kodeProduk eq req.kodeProduk }.any() }
-                if (exists) return@post call.respond(HttpStatusCode.Conflict, mapOf("error" to "Kode produk sudah ada"))
-
-                val supUuid = req.supplierId?.let { UUID.fromString(it) }
-                val katUuid = UUID.fromString(req.kategoriId)
-
-                // Insert and retrieve EntityID<UUID>, then extract .value
-                val newIdEnt = transaction {
-                    ProdukTable.insert { it ->
-                        it[ProdukTable.namaProduk] = req.namaProduk
-                        it[ProdukTable.kodeProduk] = req.kodeProduk
-                        it[ProdukTable.hargaModal] = req.hargaModal
-                        it[ProdukTable.hargaJual1] = req.hargaJual1
-                        it[ProdukTable.hargaJual2] = req.hargaJual2
-                        it[ProdukTable.hargaJual3] = req.hargaJual3
-                        it[ProdukTable.stok] = req.stok
-                        it[ProdukTable.supplierId] = supUuid
-                        it[ProdukTable.kategoriId] = katUuid
-                    } get ProdukTable.id
-                }
-                val newId: UUID = newIdEnt.value
-
-                val response = ProdukResponse(
-                    id = newId.toString(),
-                    namaProduk = req.namaProduk,
-                    kodeProduk = req.kodeProduk,
-                    hargaModal = req.hargaModal,
-                    hargaJual1 = req.hargaJual1,
-                    hargaJual2 = req.hargaJual2,
-                    hargaJual3 = req.hargaJual3,
-                    stok = req.stok,
-                    supplierId = req.supplierId,
-                    kategoriId = req.kategoriId
-                )
-                call.respond(HttpStatusCode.Created, response)
+                call.respond(HttpStatusCode.Created, mapOf("id" to newProductId.toString()))
             }
 
-            // PUT update produk
+            // PUT (Update) produk
             put("/{id}") {
-                val idParam = call.parameters["id"]
-                    ?: return@put call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing ID"))
-                val uuid = runCatching { UUID.fromString(idParam) }.getOrNull()
-                    ?: return@put call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid UUID format"))
-                val req = call.receive<ProdukRequest>()
-                val supUuid = req.supplierId?.let { UUID.fromString(it) }
-                val katUuid = UUID.fromString(req.kategoriId)
+                val principal = call.principal<JWTPrincipal>()!!
+                val entitasUUID = UUID.fromString(principal.payload.getClaim("entitasId").asString())
+                val productId = UUID.fromString(call.parameters["id"]!!)
+                val produkRequest = call.receive<ProdukRequestDto>()
 
                 val updatedCount = transaction {
-                    ProdukTable.update({ ProdukTable.id eq uuid }) { it ->
-                        it[ProdukTable.namaProduk] = req.namaProduk
-                        it[ProdukTable.kodeProduk] = req.kodeProduk
-                        it[ProdukTable.hargaModal] = req.hargaModal
-                        it[ProdukTable.hargaJual1] = req.hargaJual1
-                        it[ProdukTable.hargaJual2] = req.hargaJual2
-                        it[ProdukTable.hargaJual3] = req.hargaJual3
-                        it[ProdukTable.stok] = req.stok
-                        it[ProdukTable.supplierId] = supUuid
-                        it[ProdukTable.kategoriId] = katUuid
+                    ProdukTable.update({ (ProdukTable.id eq EntityID(productId, ProdukTable)) and (ProdukTable.entitasId eq EntityID(entitasUUID, EntitasUsahaTable)) }) {
+                        it[ProdukTable.namaProduk] = produkRequest.namaProduk
+                        it[ProdukTable.kodeProduk] = produkRequest.kodeProduk
+                        it[ProdukTable.hargaModal] = produkRequest.hargaModal
+                        it[ProdukTable.hargaJual1] = produkRequest.hargaJual1
+                        it[ProdukTable.hargaJual2] = produkRequest.hargaJual2
+                        it[ProdukTable.hargaJual3] = produkRequest.hargaJual3
+                        it[ProdukTable.stok] = produkRequest.stok
+                        it[ProdukTable.satuan] = produkRequest.satuan
+                        it[ProdukTable.supplierId] = produkRequest.supplierId?.let { sid -> EntityID(UUID.fromString(sid), SupplierTable) }
+                        it[ProdukTable.kategoriId] = EntityID(UUID.fromString(produkRequest.kategoriId), KategoriProdukTable)
+                        it[ProdukTable.beratGram] = produkRequest.berat_gram
+                        it[ProdukTable.panjangCm] = produkRequest.panjang_cm
+                        it[ProdukTable.lebarCm] = produkRequest.lebar_cm
+                        it[ProdukTable.tinggiCm] = produkRequest.tinggi_cm
                     }
                 }
-                if (updatedCount == 0) call.respond(HttpStatusCode.NotFound, mapOf("error" to "Produk tidak ditemukan"))
-                else call.respond(HttpStatusCode.OK)
+                if (updatedCount > 0) {
+                    call.respond(HttpStatusCode.OK, mapOf("message" to "Produk berhasil diperbarui"))
+                } else {
+                    call.respond(HttpStatusCode.NotFound, mapOf("error" to "Produk tidak ditemukan atau tidak ada perubahan"))
+                }
             }
 
             // DELETE produk
             delete("/{id}") {
-                val idParam = call.parameters["id"]
-                    ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing ID"))
-                val uuid = runCatching { UUID.fromString(idParam) }.getOrNull()
-                    ?: return@delete call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid UUID format"))
-                val deletedCount = transaction { ProdukTable.deleteWhere { ProdukTable.id eq uuid } }
-                if (deletedCount == 0) call.respond(HttpStatusCode.NotFound, mapOf("error" to "Produk tidak ditemukan"))
-                else call.respond(HttpStatusCode.NoContent)
+                val principal = call.principal<JWTPrincipal>()!!
+                val entitasUUID = UUID.fromString(principal.payload.getClaim("entitasId").asString())
+                val productId = UUID.fromString(call.parameters["id"]!!)
+
+                val deletedRowCount = transaction {
+                    ProdukTable.deleteWhere { (ProdukTable.id eq EntityID(productId, ProdukTable)) and (ProdukTable.entitasId eq EntityID(entitasUUID, EntitasUsahaTable)) }
+                }
+                if (deletedRowCount > 0) {
+                    call.respond(HttpStatusCode.NoContent)
+                } else {
+                    call.respond(HttpStatusCode.NotFound, mapOf("error" to "Produk tidak ditemukan"))
+                }
             }
         }
     }

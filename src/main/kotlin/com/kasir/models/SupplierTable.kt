@@ -4,7 +4,7 @@ package com.kasir.models
 import org.jetbrains.exposed.dao.id.UUIDTable
 import org.jetbrains.exposed.sql.ReferenceOption
 import org.jetbrains.exposed.sql.*
-
+import com.kasir.models.EntitasUsahaTable
 /**
  * Table definition for Supplier using UUID primary key.
  */
@@ -22,7 +22,7 @@ object SupplierTable : UUIDTable(name = "supplier") {
 
     // Rekening bank supplier, optional
     val rekeningBank = varchar("rekening_bank", 100).nullable()
-
+    val entitasId = reference("entitas_id", EntitasUsahaTable)
     // Nama sales yang bertanggung jawab, optional
     val namaSales    = varchar("nama_sales", 255).nullable()
 }

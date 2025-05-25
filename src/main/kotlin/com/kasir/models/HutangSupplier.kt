@@ -1,13 +1,20 @@
+// File: src/main/kotlin/com/kasir/models/HutangSupplier.kt
 package com.kasir.models
 
-import java.util.UUID
+import kotlinx.serialization.Contextual
+import kotlinx.serialization.Serializable
 import java.time.LocalDateTime
+import java.util.UUID
+import com.kasir.models.EntitasUsahaTable
 
+@Serializable
 data class HutangSupplier(
-    val id: UUID,
-    val pembelianId: UUID,
-    val supplierId: UUID,
+    @Contextual val id: UUID,
+    val supplierId: String,
+    @Contextual val tanggal: LocalDateTime,
     val totalHutang: Double,
     val sisaHutang: Double,
-    val tanggalJatuhTempo: LocalDateTime
+    @Contextual val tanggalJatuhTempo: LocalDateTime,
+    val status: String,
+    val entitasId: String
 )

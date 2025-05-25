@@ -5,7 +5,8 @@ import java.util.UUID
 data class Pelanggan(
     val id: UUID,
     val namaPelanggan: String,
-    val kontak: String?,
+    val no_hp: String?,
     val alamat: String?,
-    val keterangan: String?
+    val keterangan: String?,
+    val entitasId: String
 )

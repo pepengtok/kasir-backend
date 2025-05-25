@@ -1,16 +1,27 @@
 package com.kasir.models
 
-import org.jetbrains.exposed.sql.Table
-import java.time.LocalDateTime
+import org.jetbrains.exposed.dao.id.EntityID
+import org.jetbrains.exposed.dao.id.UUIDTable
+import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.javatime.datetime
+import java.time.LocalDateTime
+import java.util.UUID
+import com.kasir.models.EntitasUsahaTable
 
-object KasTransaksiTable : Table("kas_transaksi") {
-    val id = uuid("id").autoGenerate().uniqueIndex()
-    val kasId = uuid("kas_id")
-    val tanggal = datetime("tanggal")
-    val keterangan = text("keterangan")
-    val jumlah = double("jumlah")
-    val tipe = varchar("tipe", 10) // "MASUK" atau "KELUAR"
+object KasTransaksiTable : UUIDTable(name = "kas_transaksi") {
+    /** FK ke KasTable.id */
+    val kasId: Column<EntityID<UUID>> = reference("kas_id", KasTable)
 
-    override val primaryKey = PrimaryKey(id)
+    /** Waktu transaksi */
+    val tanggal: Column<LocalDateTime> = datetime("tanggal")
+
+    val entitasId = reference("entitas_id", EntitasUsahaTable)
+    /** Keterangan transaksi */
+    val keterangan: Column<String> = text("keterangan")
+
+    /** Jumlah (debit/kredit) */
+    val jumlah: Column<Double> = double("jumlah")
+
+    /** Tipe: "MASUK" atau "KELUAR" */
+    val tipe: Column<String> = varchar("tipe", 10)
 }
