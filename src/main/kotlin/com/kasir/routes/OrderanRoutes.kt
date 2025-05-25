@@ -50,10 +50,10 @@ fun Route.orderanRoutes() {
                 val orderanId = transaction {
                     val newOrderId = OrderanSalesTable.insertAndGetId { r ->
                         r[OrderanSalesTable.entitasId] = entitasIdFromJwt
-                        r[OrderanSalesTable.salesId] = salesIdFromJwt
-                        r[OrderanSalesTable.pelangganId] = EntityID(req.pelangganId, PelangganTable)
-                        r[OrderanSalesTable.total] = req.total
-                        r[OrderanSalesTable.metodePembayaran] = req.metodePembayaran
+                        r[salesId] = salesIdFromJwt
+                        r[pelangganId] = EntityID(req.pelangganId, PelangganTable)
+                        r[total] = req.total
+                        r[metodePembayaran] = req.metodePembayaran
                         r[OrderanSalesTable.tempoHari] = req.tempoHari
                         r[OrderanSalesTable.status] = OrderStatus.MENUNGGU.name
                         r[OrderanSalesTable.tanggalOrder] = LocalDateTime.now()
@@ -64,9 +64,9 @@ fun Route.orderanRoutes() {
                             r[OrderanSalesDetailTable.entitasId] = entitasIdFromJwt
                             r[OrderanSalesDetailTable.orderanId] = EntityID(newOrderId, OrderanSalesTable)
                             r[OrderanSalesDetailTable.produkId] = d.produkId?.let { EntityID(it, ProdukTable) }
-                            r[OrderanSalesDetailTable.namaProduk] = d.namaProduk
+                            r[namaProduk] = d.namaProduk
                             r[OrderanSalesDetailTable.hargaJual] = d.hargaJual
-                            r[OrderanSalesDetailTable.jumlah] = d.jumlah
+                            r[jumlah] = d.jumlah
                             r[OrderanSalesDetailTable.subtotal] = d.subtotal
                         }
                     }
@@ -186,8 +186,8 @@ fun Route.orderanRoutes() {
                                 (OrderanSalesTable.salesId eq salesIdFromJwt) and
                                 (OrderanSalesTable.entitasId eq entitasIdFromJwt)
                     }) {
-                        it[OrderanSalesTable.total] = req.total
-                        it[OrderanSalesTable.metodePembayaran] = req.metodePembayaran
+                        it[total] = req.total
+                        it[metodePembayaran] = req.metodePembayaran
                         it[OrderanSalesTable.tempoHari] = req.tempoHari
                     }
 
@@ -202,9 +202,9 @@ fun Route.orderanRoutes() {
                             r[OrderanSalesDetailTable.entitasId] = entitasIdFromJwt
                             r[OrderanSalesDetailTable.orderanId] = EntityID(oid, OrderanSalesTable)
                             r[OrderanSalesDetailTable.produkId] = d.produkId?.let { EntityID(it, ProdukTable) }
-                            r[OrderanSalesDetailTable.namaProduk] = d.namaProduk
+                            r[namaProduk] = d.namaProduk
                             r[OrderanSalesDetailTable.hargaJual] = d.hargaJual
-                            r[OrderanSalesDetailTable.jumlah] = d.jumlah
+                            r[jumlah] = d.jumlah
                             r[OrderanSalesDetailTable.subtotal] = d.subtotal
                         }
                     }
@@ -395,9 +395,9 @@ fun Route.orderanRoutes() {
                                         (OrderanSalesDetailTable.entitasId eq entitasIdFromJwt)
                             }) { r ->
                                 r[OrderanSalesDetailTable.produkId] = if (produkUuid != null) EntityID(produkUuid, ProdukTable) else null // Perbaikan di sini
-                                r[OrderanSalesDetailTable.namaProduk] = d.namaProduk
+                                r[namaProduk] = d.namaProduk
                                 r[OrderanSalesDetailTable.hargaJual] = d.hargaJual
-                                r[OrderanSalesDetailTable.jumlah] = d.qty
+                                r[jumlah] = d.qty
                                 r[OrderanSalesDetailTable.subtotal] = d.hargaJual * d.qty
                             }
                         } else {
@@ -406,9 +406,9 @@ fun Route.orderanRoutes() {
                                 r[OrderanSalesDetailTable.entitasId] = entitasIdFromJwt
                                 r[OrderanSalesDetailTable.orderanId] = EntityID(oid, OrderanSalesTable)
                                 r[OrderanSalesDetailTable.produkId] = if (produkUuid != null) EntityID(produkUuid, ProdukTable) else null // Perbaikan di sini
-                                r[OrderanSalesDetailTable.namaProduk] = d.namaProduk
+                                r[namaProduk] = d.namaProduk
                                 r[OrderanSalesDetailTable.hargaJual] = d.hargaJual
-                                r[OrderanSalesDetailTable.jumlah] = d.qty
+                                r[jumlah] = d.qty
                                 r[OrderanSalesDetailTable.subtotal] = d.hargaJual * d.qty
                             }
                         }
@@ -421,7 +421,7 @@ fun Route.orderanRoutes() {
                                 (OrderanSalesTable.entitasId eq entitasIdFromJwt)
                     }) {
                         it[OrderanSalesTable.status] = OrderStatus.DISETUJUI.name
-                        it[OrderanSalesTable.total] = newTotal // Update total berdasarkan detail yang baru
+                        it[total] = newTotal // Update total berdasarkan detail yang baru
                     }
 
                     val header = OrderanSalesTable.select { OrderanSalesTable.id eq oid }.single().let { row ->
@@ -486,148 +486,178 @@ fun Route.orderanRoutes() {
                 }
             }
 
-            // 8) Admin kirim orderan → finalize transaksi
             post("/{id}/kirim") {
+                // 1) Autentikasi & parse ID
                 val entitasIdFromJwt = getAdminContextEntitasId()
-                val oid = runCatching { UUID.fromString(call.parameters["id"]!!) }
-                    .getOrNull() ?: return@post call.respond(HttpStatusCode.BadRequest, "Invalid ID")
+                val oid = call.parameters["id"]?.let(UUID::fromString)
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, "Invalid ID")
                 val req = call.receive<KirimOrderanRequest>()
 
-                val responsePair = transaction {
-                    val order = OrderanSalesTable.select {
-                        (OrderanSalesTable.id eq oid) and
-                                (OrderanSalesTable.entitasId eq entitasIdFromJwt)
-                    }.singleOrNull() // Gunakan singleOrNull()
-
-                    if (order == null) {
-                        return@transaction HttpStatusCode.NotFound to "Orderan not found"
-                    }
+                // 2) Jalankan semua dalam satu transaction
+                val (status, body) = transaction {
+                    // a) Ambil header order
+                    val order = OrderanSalesTable
+                        .selectAll()
+                        .andWhere {
+                            (OrderanSalesTable.id eq oid) and
+                                    (OrderanSalesTable.entitasId eq entitasIdFromJwt)
+                        }
+                        .singleOrNull()
+                        ?: return@transaction HttpStatusCode.NotFound to "Orderan not found"
 
                     if (order[OrderanSalesTable.status] != OrderStatus.DISETUJUI.name) {
                         return@transaction HttpStatusCode.BadRequest to "Orderan belum disetujui"
                     }
 
-                    // Validasi Kas wajib dimasukkan ketika pembayaran TUNAI
-                    if (order[OrderanSalesTable.metodePembayaran].equals("TUNAI", ignoreCase = true) && req.kasId == null) {
-                        return@transaction HttpStatusCode.BadRequest to "Kas ID is required for TUNAI payment method"
+                    // b) Validasi kas untuk TUNAI
+                    if (order[OrderanSalesTable.metodePembayaran].equals("TUNAI", true) && req.kasId == null) {
+                        return@transaction HttpStatusCode.BadRequest to "Kas ID is required for TUNAI payment"
                     }
 
-                    // Pastikan semua produk detail memiliki produkId yang valid (ada di ProdukTable)
-                    val orderDetails = OrderanSalesDetailTable.select { OrderanSalesDetailTable.orderanId eq oid }.toList()
-                    for (detail in orderDetails) {
-                        if (detail[OrderanSalesDetailTable.produkId] == null) {
-                            // Perbaikan: Ganti HttpErrors dengan HttpStatusCode dan pesan string
-                            return@transaction HttpStatusCode.BadRequest to "All products in the order must have a valid product ID for shipment."
-                        }
-                    }
+                    // c) Ambil detail order
+                    val orderDetails = OrderanSalesDetailTable
+                        .selectAll()
+                        .andWhere { OrderanSalesDetailTable.orderanId eq oid }
+                        .toList()
 
+                    // d) Hitung tempo & jatuhTempo
+                    val tempoDays = order[OrderanSalesTable.tempoHari] ?: 0
+                    val jatuhTempo = LocalDate
+                        .now()
+                        .plusDays(tempoDays.toLong())
+                        .atStartOfDay()
+                    val nowDateTime = LocalDateTime.now()
 
+                    // e) Buat transaksi penjualan
                     val penjualanId = PenjualanTable.insertAndGetId { r ->
-                        r[PenjualanTable.entitasId] = entitasIdFromJwt
-                        r[PenjualanTable.pelangganId] = order[OrderanSalesTable.pelangganId]!!
-                        r[PenjualanTable.salesId] = order[OrderanSalesTable.salesId]
-                        r[PenjualanTable.total] = order[OrderanSalesTable.total]
+                        r[PenjualanTable.entitasId]        = entitasIdFromJwt
+                        r[PenjualanTable.pelangganId]      = order[OrderanSalesTable.pelangganId]!!
+                        r[PenjualanTable.salesId]          = order[OrderanSalesTable.salesId]!!
+                        r[PenjualanTable.total]            = order[OrderanSalesTable.total]
                         r[PenjualanTable.metodePembayaran] = order[OrderanSalesTable.metodePembayaran]
-                        r[PenjualanTable.jatuhTempo] = LocalDate.now().plusDays(order[OrderanSalesTable.tempoHari]?.toLong() ?: 0L)
-                        r[PenjualanTable.status] = if (order[OrderanSalesTable.metodePembayaran].equals("TUNAI", ignoreCase = true)) // Gunakan ignoreCase
-                            "LUNAS" else "BELUM_LUNAS"
-                        r[PenjualanTable.tanggal] = LocalDate.now()
+                        r[PenjualanTable.jatuhTempo]       = jatuhTempo
+                        r[PenjualanTable.status]           =
+                            if (order[OrderanSalesTable.metodePembayaran].equals("TUNAI", true))
+                                "LUNAS" else "BELUM_LUNAS"
+                        r[PenjualanTable.tanggal]          = nowDateTime
                     }.value
 
+                    // f) Masukkan detail penjualan & update stok
                     orderDetails.forEach { det ->
-                        val prodId = det[OrderanSalesDetailTable.produkId]!!
-                        val qty = det[OrderanSalesDetailTable.jumlah]
-                        val prodRow = ProdukTable.select { ProdukTable.id eq prodId }.singleOrNull() // Gunakan singleOrNull()
-                            ?: return@transaction HttpStatusCode.InternalServerError to "Produk dengan ID ${prodId} tidak ditemukan. Harap periksa integritas data."
+                        val prodId   = det[OrderanSalesDetailTable.produkId]!!
+                        val qtyInt   = det[OrderanSalesDetailTable.jumlah]
+                        val qty      = qtyInt.toDouble()
 
-                        PenjualanDetailTable.insert { r ->
-                            r[PenjualanDetailTable.penjualanId] = EntityID(penjualanId, PenjualanTable)
-                            r[PenjualanDetailTable.produkId] = prodId
-                            r[PenjualanDetailTable.hargaModal] = prodRow[ProdukTable.hargaModal]
-                            r[PenjualanDetailTable.hargaJual] = det[OrderanSalesDetailTable.hargaJual]
-                            r[PenjualanDetailTable.jumlah] = qty
-                            r[PenjualanDetailTable.subtotal] = det[OrderanSalesDetailTable.subtotal]
-                            r[PenjualanDetailTable.satuan] = prodRow[ProdukTable.satuan]
-                            r[PenjualanDetailTable.entitasId] = entitasIdFromJwt
-                            r[PenjualanDetailTable.potensiLaba] = (r[PenjualanDetailTable.hargaJual] - r[PenjualanDetailTable.hargaModal]) * r[PenjualanDetailTable.jumlah].toDouble()
+                        // ambil data produk
+                        val prodRow = ProdukTable
+                            .selectAll()
+                            .andWhere { ProdukTable.id eq prodId }
+                            .singleOrNull()
+                            ?: return@transaction HttpStatusCode.InternalServerError to
+                                    "Produk dengan ID $prodId tidak ditemukan."
+
+                        val hargaModal  = prodRow[ProdukTable.hargaModal]
+                        val hargaJual   = det[OrderanSalesDetailTable.hargaJual]
+                        val potensiLaba = (hargaJual - hargaModal) * qtyInt
+
+                        // insert detail
+                        PenjualanDetailTable.insert { pd ->
+                            pd[PenjualanDetailTable.penjualanId] = EntityID(penjualanId, PenjualanTable)
+                            pd[PenjualanDetailTable.produkId]    = prodId
+                            pd[PenjualanDetailTable.hargaModal]  = hargaModal
+                            pd[PenjualanDetailTable.hargaJual]   = hargaJual
+                            pd[PenjualanDetailTable.jumlah]      = qtyInt
+                            pd[PenjualanDetailTable.subtotal]    = det[OrderanSalesDetailTable.subtotal]
+                            pd[PenjualanDetailTable.satuan]      = prodRow[ProdukTable.satuan]
+                            pd[PenjualanDetailTable.entitasId]   = entitasIdFromJwt
+                            pd[PenjualanDetailTable.potensiLaba] = potensiLaba
                         }
+
+                        // update stok produk
+                        val currentStok = prodRow[ProdukTable.stok]
                         ProdukTable.update({ ProdukTable.id eq prodId }) {
-                            it[ProdukTable.stok] = ProdukTable.stok.minus(qty.toDouble())
+                            it[ProdukTable.stok] = currentStok - qty
                         }
                     }
 
-                    if (order[OrderanSalesTable.metodePembayaran].equals("TUNAI", ignoreCase = true)) { // Gunakan ignoreCase
+                    // g) Catat kas atau piutang
+                    if (order[OrderanSalesTable.metodePembayaran].equals("TUNAI", true)) {
                         KasService.record(
                             entitasId = entitasIdFromJwt.value,
-                            kasId = req.kasId!!, // Sudah divalidasi di atas
-                            tanggal = LocalDateTime.now(),
-                            jumlah = order[OrderanSalesTable.total],
-                            tipe = "MASUK",
+                            kasId      = req.kasId!!,
+                            tanggal    = nowDateTime,
+                            jumlah     = order[OrderanSalesTable.total],
+                            tipe       = "MASUK",
                             keterangan = "Pembayaran orderan $oid"
                         )
                     } else {
+                        // piutang
                         val piutangId = PiutangPelangganTable.insertAndGetId { p ->
-                            p[PiutangPelangganTable.entitasId] = entitasIdFromJwt
-                            p[PiutangPelangganTable.penjualanId] = EntityID(penjualanId, PenjualanTable)
-                            p[PiutangPelangganTable.pelangganId] = order[OrderanSalesTable.pelangganId]!!
-                            p[PiutangPelangganTable.totalPiutang] = order[OrderanSalesTable.total] // Perbaikan: Ambil dari order
-                            p[PiutangPelangganTable.sisaPiutang] = order[OrderanSalesTable.total] // Perbaikan: Ambil dari order
-                            p[PiutangPelangganTable.tanggalJatuhTempo] =
-                                LocalDate.now().plusDays(order[OrderanSalesTable.tempoHari]?.toLong() ?: 0L)
-                            p[PiutangPelangganTable.status] = "BELUM_LUNAS"
-                            p[PiutangPelangganTable.fotoNotaUrl] = null
-                            p[PiutangPelangganTable.tanggal] = LocalDate.now()
+                            p[PiutangPelangganTable.entitasId]       = entitasIdFromJwt
+                            p[PiutangPelangganTable.penjualanId]     = EntityID(penjualanId, PenjualanTable)
+                            p[PiutangPelangganTable.pelangganId]     = order[OrderanSalesTable.pelangganId]!!
+                            p[PiutangPelangganTable.totalPiutang]    = order[OrderanSalesTable.total]
+                            p[PiutangPelangganTable.sisaPiutang]     = order[OrderanSalesTable.total]
+                            p[PiutangPelangganTable.tanggalJatuhTempo] = jatuhTempo
+                            p[PiutangPelangganTable.status]          = "BELUM_LUNAS"
+                            p[PiutangPelangganTable.fotoNotaUrl]     = null
+                            p[PiutangPelangganTable.tanggal] = nowDateTime.toLocalDate()
                         }.value
 
                         PembayaranPiutangPelangganTable.insert { b ->
-                            b[PembayaranPiutangPelangganTable.entitasId] = entitasIdFromJwt
-                            b[PembayaranPiutangPelangganTable.piutangId] = EntityID(piutangId, PiutangPelangganTable)
-                            b[PembayaranPiutangPelangganTable.tanggalBayar] = LocalDateTime.now()
+                            b[PembayaranPiutangPelangganTable.entitasId]  = entitasIdFromJwt
+                            b[PembayaranPiutangPelangganTable.piutangId]   = EntityID(piutangId, PiutangPelangganTable)
+                            b[PembayaranPiutangPelangganTable.tanggalBayar] = nowDateTime
                             b[PembayaranPiutangPelangganTable.jumlahBayar] = 0.0
-                            b[PembayaranPiutangPelangganTable.kasId] = null as EntityID<UUID>? // Menggunakan type casting
-                            b[PembayaranPiutangPelangganTable.keterangan] = "Pembukaan piutang orderan $oid"
+                            b[PembayaranPiutangPelangganTable.kasId]       = null
+                            b[PembayaranPiutangPelangganTable.keterangan]  = "Pembukaan piutang orderan $oid"
                         }
                     }
 
-                    // 5) Komisi sales
-                    val salesId = order[OrderanSalesTable.salesId]
+                    // h) Hitung & insert komisi sales
+                    val salesId   = order[OrderanSalesTable.salesId]!!
                     val komisiPct = SalesTable
-                        .select { SalesTable.id eq salesId }
-                        .singleOrNull()?.get(if (order[OrderanSalesTable.metodePembayaran].equals("TUNAI", ignoreCase = true)) // Gunakan ignoreCase
-                            SalesTable.komisiTunai else SalesTable.komisiPiutang)
-                        ?: 0.0 // Default 0.0 jika sales tidak ditemukan atau komisi tidak ada
+                        .selectAll()
+                        .andWhere { SalesTable.id eq salesId }
+                        .singleOrNull()
+                        ?.get(
+                            if (order[OrderanSalesTable.metodePembayaran].equals("TUNAI", true))
+                                SalesTable.komisiTunai
+                            else
+                                SalesTable.komisiPiutang
+                        ) ?: 0.0
 
-                    val profit = orderDetails
-                        .sumOf { row ->
-                            val produkId = row[OrderanSalesDetailTable.produkId]
-                            val modal = if (produkId != null) {
-                                ProdukTable.select { ProdukTable.id eq produkId }.singleOrNull()?.get(ProdukTable.hargaModal) ?: 0.0
-                            } else {
-                                0.0
-                            }
-                            (row[OrderanSalesDetailTable.hargaJual] - modal) * row[OrderanSalesDetailTable.jumlah]
-                        }
-
-                    KomisiSalesTable.insert { k ->
-                        k[KomisiSalesTable.entitasId] = entitasIdFromJwt
-                        k[KomisiSalesTable.salesId] = salesId
-                        k[KomisiSalesTable.penjualanId] = EntityID(penjualanId, PenjualanTable)
-                        k[KomisiSalesTable.komisiPersen] = komisiPct
-                        k[KomisiSalesTable.nominalKomisi] = profit * komisiPct / 100.0
-                        k[KomisiSalesTable.status] =
-                            if (order[OrderanSalesTable.metodePembayaran].equals("TUNAI", ignoreCase = true)) "DIBAYAR" else "PENDING" // Gunakan ignoreCase
-                        k[KomisiSalesTable.tanggalKomisi] = LocalDateTime.now()
+                    val profit = orderDetails.sumOf { det ->
+                        val modal = ProdukTable
+                            .selectAll()
+                            .andWhere { ProdukTable.id eq det[OrderanSalesDetailTable.produkId]!! }
+                            .singleOrNull()
+                            ?.get(ProdukTable.hargaModal) ?: 0.0
+                        (det[OrderanSalesDetailTable.hargaJual] - modal) * det[OrderanSalesDetailTable.jumlah]
                     }
 
-                    // 6) Update status orderan
+                    KomisiSalesTable.insert { ks ->
+                        ks[KomisiSalesTable.entitasId]     = entitasIdFromJwt
+                        ks[KomisiSalesTable.salesId]       = salesId
+                        ks[KomisiSalesTable.penjualanId]   = EntityID(penjualanId, PenjualanTable)
+                        ks[KomisiSalesTable.komisiPersen]  = komisiPct
+                        ks[KomisiSalesTable.nominalKomisi] = profit * komisiPct / 100.0
+                        ks[KomisiSalesTable.status]        =
+                            if (order[OrderanSalesTable.metodePembayaran].equals("TUNAI", true))
+                                "DIBAYAR" else "PENDING"
+                        ks[KomisiSalesTable.tanggalKomisi] = nowDateTime
+                    }
+
+                    // i) Update status orderan → TERKIRIM
                     OrderanSalesTable.update({ OrderanSalesTable.id eq oid }) {
                         it[OrderanSalesTable.status] = OrderStatus.TERKIRIM.name
                     }
-                    HttpStatusCode.OK to IdResponse(oid.toString()) // Mengembalikan data sukses
+
+                    HttpStatusCode.OK to IdResponse(oid.toString())
                 }
 
-                // Respons di luar transaksi
-                call.respond(responsePair.first, responsePair.second)
+                // 3) Kirim response
+                call.respond(status, body)
             }
         }
     }

@@ -177,7 +177,10 @@ fun Route.piutangRoutes() {
                             r[PiutangPelangganTable.sisaPiutang]       = req.sisaPiutang
                             r[PiutangPelangganTable.status]            = req.status
                             // ✅ Perbaikan: Parse sebagai LocalDate
-                            req.jatuhTempo?.let { r[PiutangPelangganTable.tanggalJatuhTempo] = LocalDate.parse(it) }
+                            req.jatuhTempo?.let {
+                                r[PiutangPelangganTable.tanggalJatuhTempo] =
+                                    LocalDate.parse(it).atStartOfDay()
+                            }
                             req.fotoNotaUrl?.let { r[PiutangPelangganTable.fotoNotaUrl]   = it }
                         }
                     }
